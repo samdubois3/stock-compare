@@ -1,0 +1,30 @@
+# One ticker per line: SYMBOL, Display name
+# Add a line here (on GitHub: click the pencil icon, edit, "Commit changes")
+# and the site will pick it up within a few minutes.
+# Use Yahoo Finance symbols (e.g. BRK-B, not BRK.B).
+
+# --- Index funds (these track the major indices, dividends included) ---
+SPY, S&P 500 (SPY)
+QQQ, Nasdaq-100 (QQQ)
+DIA, Dow Jones 30 (DIA)
+IWM, Russell 2000 small caps (IWM)
+VTI, Total US Market (VTI)
+VXUS, International stocks (VXUS)
+AGG, US Bonds (AGG)
+GLD, Gold (GLD)
+
+# --- Stocks ---
+AAPL, Apple
+MSFT, Microsoft
+GOOGL, Alphabet (Google)
+AMZN, Amazon
+NVDA, Nvidia
+META, Meta (Facebook)
+TSLA, Tesla
+BRK-B, Berkshire Hathaway
+JPM, JPMorgan Chase
+V, Visa
+JNJ, Johnson & Johnson
+KO, Coca-Cola
+COST, Costco
+XOM, Exxon Mobil

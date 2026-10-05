@@ -1,0 +1,54 @@
+name: Update data and publish site
+
+# Fully automatic: runs every weekday evening and on every push to main.
+# Can also be started by hand (Actions tab -> this workflow -> "Run workflow").
+on:
+  schedule:
+    - cron: "30 22 * * 1-5"   # weekdays, after US market close
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: write   # lets the last step keep this schedule switched on
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install --upgrade yfinance pandas
+      - id: pages
+        uses: actions/configure-pages@v6
+      - name: Download prices
+        run: python scripts/fetch_data.py
+        env:
+          # if Yahoo fails for a ticker, reuse what the live site already has
+          PREVIOUS_SITE: ${{ steps.pages.outputs.base_url }}
+      - name: Assemble site
+        run: mkdir _site && cp -r index.html data _site/
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v5
+      # GitHub pauses scheduled workflows after 60 days without repo activity.
+      # Re-enabling it every run resets that clock, so it never pauses.
+      - name: Keep the daily schedule switched on
+        if: always()
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/update-data.yml/enable"
+        env:
+          GH_TOKEN: ${{ github.token }}
