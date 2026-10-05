@@ -66,7 +66,18 @@
   .money { position: relative; }
   .money span { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--ink-2); }
   .money input { padding-left: 22px; width: 150px; }
-  #addTicker { width: 200px; }
+  .picker { position: relative; width: min(100%, 480px); }
+  .picker input { width: 100%; padding-right: 40px; }
+  .picker .caret { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); border: 0; background: transparent; padding: 6px 12px; color: var(--ink-2); }
+  #pickList { position: absolute; z-index: 10; left: 0; right: 0; top: calc(100% + 4px); max-height: 340px; overflow-y: auto;
+    margin: 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--axis); border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+  #pickList li { display: flex; gap: 10px; align-items: baseline; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+  #pickList li[aria-selected=true] { background: var(--chip); }
+  #pickList li b { min-width: 58px; }
+  #pickList li .nm { color: var(--ink-2); font-size: 14px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #pickList li .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--grid); border-radius: 4px; padding: 0 5px; }
+  #pickList li.group { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; cursor: default; padding: 6px 10px 2px; }
   .hint { font-size: 14px; color: var(--muted); margin: 6px 0 0; }
   .err { color: var(--down); }
   .grid2 { display: grid; grid-template-columns: auto 1fr; gap: 18px 28px; align-items: start; }
@@ -112,9 +123,12 @@
       <span class="label">Compare (up to 6; the first one is the main pick)</span>
       <div class="row" id="chips"></div>
       <div class="row" style="margin-top:10px">
-        <input type="text" id="addTicker" list="tickerList" placeholder="Add ticker, e.g. MSFT" autocomplete="off" aria-label="Add a ticker">
-        <datalist id="tickerList"></datalist>
-        <button id="addBtn" class="primary">Add</button>
+        <div class="picker" id="picker">
+          <input type="text" id="addTicker" role="combobox" aria-expanded="false" aria-controls="pickList" aria-autocomplete="list"
+                 aria-label="Add a stock or fund" placeholder="Add a stock or fund: pick from the list or type a name" autocomplete="off" spellcheck="false">
+          <button class="caret" id="caret" tabindex="-1" aria-label="Show list">▾</button>
+          <ul id="pickList" role="listbox" hidden></ul>
+        </div>
       </div>
       <p class="hint" id="addMsg"></p>
     </div>
@@ -180,14 +194,16 @@ const PERIODS = [["1M",1],["3M",3],["6M",6],["YTD",0],["1Y",12],["3Y",36],["5Y",
 const AMOUNTS = [1000, 10000, 50000, 100000];
 const DEFAULTS = { t: ["AAPL","SPY","QQQ"], amt: 10000, p: "5Y", from: "", to: "", div: true, log: false };
 
-let catalog = [];          // [{symbol,name,since}]
+let catalog = [];          // [[symbol, name, kind, lowercase name]]  kind: P popular, E ETF, S stock
+const bySym = new Map();
 const cache = {};          // symbol -> {d,c,a}
 let state = readHash();
 let chart;
 
 const $ = id => document.getElementById(id);
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const nameOf = s => (catalog.find(x => x.symbol === s) || {}).name || s;
+const nameOf = s => (bySym.get(s) || [s, s])[1];
+const shortName = n => (n.length > 28 ? n.slice(0, 26).trimEnd() + "…" : n);
 const colorVar = i => `--s${i + 1}`;
 
 // ---------- formatting ----------
@@ -224,9 +240,25 @@ async function load(sym) {
   if (!cache[sym]) {
     const r = await fetch("data/" + encodeURIComponent(sym) + ".json");
     if (!r.ok) throw new Error("missing");
-    cache[sym] = await r.json();
+    cache[sym] = decode(await r.json());
   }
   return cache[sym];
+}
+
+// Files store log-prices as deltas plus dividends; rebuild dates, closes and a
+// dividends-reinvested series (each dividend reinvested at that day's close).
+function decode(e) {
+  if (e.d) return e;
+  const n = e.p.length, d = new Array(n), c = new Array(n), a = new Array(n);
+  const t0 = Date.parse(e.s + "T00:00:00Z"), div = new Map(e.v);
+  let days = 0, logp = 0;
+  for (let i = 0; i < n; i++) {
+    days += e.g[i]; logp += e.p[i];
+    d[i] = new Date(t0 + days * 864e5).toISOString().slice(0, 10);
+    c[i] = Math.exp(logp / 1e4);
+    a[i] = i ? a[i - 1] * (c[i] + (div.get(i) || 0)) / c[i - 1] : c[0];
+  }
+  return { d, c, a };
 }
 
 function lastOnOrBefore(dates, target) {   // dates sorted ascending
@@ -294,9 +326,11 @@ function compute() {
 function renderControls() {
   $("chips").innerHTML = state.t.map((s, i) => `
     <span class="chip"><span class="sw" style="background:var(${colorVar(i)})"></span>${esc(s)}
-      <span class="nm">${esc(nameOf(s) !== s ? nameOf(s) : "")}</span>
+      <span class="nm">${esc(nameOf(s) !== s ? shortName(nameOf(s)) : "")}</span>
       ${state.t.length > 1 ? `<button aria-label="Remove ${esc(s)}" data-rm="${esc(s)}">×</button>` : ""}</span>`).join("");
-  $("addTicker").disabled = $("addBtn").disabled = state.t.length >= MAX;
+  const full = state.t.length >= MAX;
+  $("addTicker").disabled = $("caret").disabled = full;
+  $("addTicker").placeholder = full ? `Remove one to add another (max ${MAX})` : "Add a stock or fund: pick from the list or type a name";
   $("amount").value = state.amt;
   $("amountPresets").innerHTML = AMOUNTS.map(a =>
     `<button data-amt="${a}" aria-pressed="${a === state.amt}">${money(a)}</button>`).join("");
@@ -402,23 +436,82 @@ function drawChart(dates, series) {
 }
 
 // ---------- events ----------
-async function addTicker(raw) {
-  const sym = raw.trim().toUpperCase().replace(/\./g, "-").split(/\s/)[0];
-  $("addMsg").textContent = ""; $("addMsg").className = "hint";
-  if (!sym) return;
-  if (state.t.includes(sym)) { $("addTicker").value = ""; return; }
-  try {
-    await load(sym);
-  } catch {
-    $("addMsg").className = "hint err";
-    $("addMsg").textContent = `"${sym}" isn't in the list yet. Ask to have it added to tickers.txt (it shows up a few minutes later).`;
-    return;
+// Searchable dropdown over every listed stock and ETF
+let matches = [], active = -1, pickerHint = "";
+
+function search(q) {
+  q = q.trim();
+  if (!q) return catalog.filter(c => c[2] === "P");
+  const qu = q.toUpperCase().replace(/\./g, "-"), ql = q.toLowerCase(), found = [];
+  for (const c of catalog) {
+    const nl = c[3];
+    const rank = c[0] === qu ? 0 : c[0].startsWith(qu) ? 1 : nl.startsWith(ql) ? 2
+               : nl.includes(" " + ql) ? 3 : nl.includes(ql) ? 4 : -1;
+    if (rank >= 0) found.push([rank - (c[2] === "P" ? 0.5 : 0), c]);
   }
-  state.t.push(sym); $("addTicker").value = ""; render();
+  found.sort((x, y) => x[0] - y[0] || x[1][0].length - y[1][0].length || (x[1][0] < y[1][0] ? -1 : 1));
+  return found.slice(0, 50).map(x => x[1]);
 }
 
-$("addBtn").onclick = () => addTicker($("addTicker").value);
-$("addTicker").addEventListener("keydown", e => { if (e.key === "Enter") addTicker(e.target.value); });
+function openList() {
+  const q = $("addTicker").value;
+  matches = search(q).filter(c => !state.t.includes(c[0]));
+  active = matches.length ? 0 : -1;
+  const head = q.trim() ? "" : '<li class="group" role="presentation">Popular · or type any company or ticker</li>';
+  $("pickList").innerHTML = head + (matches.length
+    ? matches.map((c, i) => `<li role="option" id="opt${i}" data-i="${i}" aria-selected="${i === active}">
+        <b>${esc(c[0])}</b><span class="nm">${esc(c[1])}</span>${c[2] === "E" ? '<span class="tag">ETF</span>' : ""}</li>`).join("")
+    : '<li class="group" role="presentation">No matches</li>');
+  $("pickList").hidden = false;
+  $("addTicker").setAttribute("aria-expanded", "true");
+}
+function closeList() {
+  $("pickList").hidden = true;
+  $("addTicker").setAttribute("aria-expanded", "false");
+  $("addTicker").removeAttribute("aria-activedescendant");
+}
+function moveActive(step) {
+  if (!matches.length) return;
+  active = (active + step + matches.length) % matches.length;
+  $("pickList").querySelectorAll("[role=option]").forEach((li, i) => li.setAttribute("aria-selected", i === active));
+  $("opt" + active).scrollIntoView({ block: "nearest" });
+  $("addTicker").setAttribute("aria-activedescendant", "opt" + active);
+}
+async function pick(c) {
+  if (!c) return;
+  closeList();
+  $("addTicker").value = "";
+  $("addMsg").className = "hint";
+  $("addMsg").textContent = `Loading ${c[0]}…`;
+  try {
+    await load(c[0]);
+  } catch {
+    $("addMsg").className = "hint err";
+    $("addMsg").textContent = `Couldn't load ${c[0]}. Try again in a minute.`;
+    return;
+  }
+  $("addMsg").textContent = pickerHint;
+  if (!state.t.includes(c[0]) && state.t.length < MAX) state.t.push(c[0]);
+  render();
+}
+
+$("addTicker").addEventListener("input", openList);
+$("addTicker").addEventListener("focus", openList);
+$("addTicker").addEventListener("keydown", e => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if ($("pickList").hidden) openList(); else moveActive(e.key === "ArrowDown" ? 1 : -1);
+  } else if (e.key === "Enter") {
+    e.preventDefault(); pick(matches[active]);
+  } else if (e.key === "Escape") closeList();
+});
+$("caret").onclick = () => { if ($("pickList").hidden) $("addTicker").focus(); else closeList(); };
+$("pickList").addEventListener("mousedown", e => {
+  e.preventDefault();   // keep focus in the input
+  const li = e.target.closest("[data-i]");
+  if (li) pick(matches[+li.dataset.i]);
+});
+document.addEventListener("click", e => { if (!$("picker").contains(e.target)) closeList(); });
 $("chips").onclick = e => {
   const s = e.target.dataset.rm; if (!s) return;
   state.t = state.t.filter(x => x !== s); render();
@@ -446,12 +539,14 @@ async function loadSelected() {
 
 (async function init() {
   try {
-    catalog = await (await fetch("data/index.json")).json();
+    const list = await (await fetch("data/symbols.json")).json();
+    catalog = list.map(([sym, name, kind]) => [sym, name, kind, name.toLowerCase()]);
+    catalog.forEach(c => bySym.set(c[0], c));
   } catch {
     $("headline").innerHTML = '<span class="err">Couldn\'t load the price data. Try refreshing the page.</span>';
     return;
   }
-  $("tickerList").innerHTML = catalog.map(c => `<option value="${esc(c.symbol)}">${esc(c.name)}</option>`).join("");
+  $("addMsg").textContent = pickerHint = `Every stock and ETF on the NYSE, NASDAQ and other US exchanges (${catalog.length.toLocaleString("en-US")}), plus a few popular mutual funds.`;
   await loadSelected();
   const lastDate = cache[state.t[0]].d.slice(-1)[0];
   $("updated").textContent = `Prices through ${fmtDate(lastDate)} (close). Updated automatically each weekday evening.`;

@@ -1,10 +1,12 @@
-# One ticker per line: SYMBOL, Display name
-# Add a line here (on GitHub: click the pencil icon, edit, "Commit changes")
-# and the site will pick it up within a few minutes.
-# Use Yahoo Finance symbols (e.g. BRK-B, not BRK.B).
+# The "Popular" list shown first in the picker, with friendly names.
+# Every stock and ETF on the US exchanges is included automatically; add a
+# line here only to feature something at the top of the list, or to include
+# something that isn't exchange-listed (like a mutual fund).
+# Format: SYMBOL, Display name   (Yahoo Finance symbols, e.g. BRK-B not BRK.B)
 
 # --- Index funds (these track the major indices, dividends included) ---
 SPY, S&P 500 (SPY)
+VOO, S&P 500 - Vanguard (VOO)
 QQQ, Nasdaq-100 (QQQ)
 DIA, Dow Jones 30 (DIA)
 IWM, Russell 2000 small caps (IWM)
@@ -12,6 +14,11 @@ VTI, Total US Market (VTI)
 VXUS, International stocks (VXUS)
 AGG, US Bonds (AGG)
 GLD, Gold (GLD)
+
+# --- Popular index mutual funds ---
+FXAIX, Fidelity 500 Index Fund (FXAIX)
+VFIAX, Vanguard 500 Index Admiral (VFIAX)
+VTSAX, Vanguard Total Stock Market Admiral (VTSAX)
 
 # --- Stocks ---
 AAPL, Apple
